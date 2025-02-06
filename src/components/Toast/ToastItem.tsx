@@ -1,5 +1,5 @@
-import type { PropsWithChildren } from 'react';
-import { useEffect, useState } from 'react';
+import type { PropsWithChildren, RefObject } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import styled from 'styled-components';
 
 import { mediumGroupBorderRadius } from '#src/components/themes';
@@ -94,6 +94,35 @@ const Progress = styled.div.attrs<{ $percent: number }>((props) => ({
   transition: ${({ $duration }) => `all ${$duration}ms linear`};
 `;
 
+const usePauseOnHover = (pauseOnHover: boolean, wrapperRef: RefObject<HTMLDivElement>) => {
+  const [paused, setPaused] = useState(false);
+
+  const onWrapperEnter = useCallback(() => setPaused(true), []);
+  const onWrapperLeave = useCallback(() => setPaused(false), []);
+
+  useEffect(() => {
+    if (!pauseOnHover) {
+      return;
+    }
+
+    const wrapper = wrapperRef.current;
+
+    if (wrapper) {
+      wrapper.addEventListener('mouseenter', onWrapperEnter);
+      wrapper.addEventListener('mouseleave', onWrapperLeave);
+    }
+
+    return () => {
+      if (wrapper) {
+        wrapper.removeEventListener('mouseenter', onWrapperEnter);
+        wrapper.removeEventListener('mouseleave', onWrapperLeave);
+      }
+    };
+  }, [onWrapperLeave, onWrapperEnter, pauseOnHover, wrapperRef]);
+
+  return paused;
+};
+
 const Wrapper = styled.div`
   position: relative;
   overflow: hidden;
@@ -111,6 +140,8 @@ export interface ToastItemWithProgressProps {
   status?: NotificationItemStatus;
   /** Шаг шкалы отсчета времени */
   progressStep?: number;
+  /** При наведении на блок останавливает отсчет времени */
+  pauseOnHover?: boolean;
 }
 
 export const ToastItemWithProgress = ({
@@ -119,27 +150,33 @@ export const ToastItemWithProgress = ({
   onRemoveNotification,
   autoDeleteTime,
   progressStep = 1,
+  pauseOnHover = true,
 }: PropsWithChildren<ToastItemWithProgressProps>) => {
   const [progress, setProgress] = useState(100);
+
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const paused = usePauseOnHover(pauseOnHover, wrapperRef);
 
   const delta = (autoDeleteTime || 0) / (100 * progressStep);
 
   useEffect(() => {
-    if (!autoDeleteTime) return;
-
-    if (progress === 0) {
-      onRemoveNotification();
+    if (!autoDeleteTime || paused || progress === 0) {
       return;
     }
+
     const timerId = setTimeout(() => setProgress((prev) => prev - 1), delta);
 
     return () => {
       clearTimeout(timerId);
     };
-  }, [progress, progressStep]);
+  }, [autoDeleteTime, delta, paused, progress]);
+
+  useEffect(() => {
+    if (progress === 0) onRemoveNotification();
+  }, [progress, onRemoveNotification]);
 
   return (
-    <Wrapper>
+    <Wrapper ref={wrapperRef}>
       {children}
       {progress > 0 && <Progress $percent={progress} $status={status} $duration={delta} />}
     </Wrapper>
